@@ -362,6 +362,11 @@ showstack = False
 lastline = ""
 line = ""
 print("\x1b[2H\x1b[2J", end="")
+
+with open("aliases.py", "r") as a:
+    ct = a.read()
+    preprocessor_macros = eval(ct)
+
 while (True):
     lastline = line
     line = input(f"{len(stack)}: ")
