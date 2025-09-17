@@ -1,4 +1,9 @@
+#! /usr/bin/python3
+
+# pyforth!
+
 import copy
+import os
 
 iota_counter = 0
 def iota(reset = False):
@@ -23,33 +28,35 @@ class Op:
         self.op = op
         self.args = args
         self.loc = loc
-    Plus     = iota(True)
-    Sub      = iota()
-    Mul      = iota()
-    Div      = iota()
-    Pow      = iota()
-    Eq       = iota()
-    Lt       = iota()
-    Gt       = iota()
-    Not      = iota()
-    Push     = iota()
-    Dup      = iota()
-    Drop     = iota()
-    Over     = iota()
-    Swap     = iota()
-    Dump     = iota()
-    If       = iota()
-    Else     = iota()
-    End      = iota()
-    While    = iota()
-    Do       = iota()
-    WhileEnd = iota()
-    Break    = iota()
-    Continue = iota()
-    Index    = iota()
-    SetVar   = iota()
-    GetVar   = iota()
-    COUNT    = iota()
+    Plus         = iota(True)
+    Sub          = iota()
+    Mul          = iota()
+    Div          = iota()
+    Pow          = iota()
+    Eq           = iota()
+    Lt           = iota()
+    Gt           = iota()
+    Not          = iota()
+    Push         = iota()
+    Dup          = iota()
+    Drop         = iota()
+    Over         = iota()
+    Swap         = iota()
+    Dump         = iota()
+    If           = iota()
+    Else         = iota()
+    End          = iota()
+    While        = iota()
+    Do           = iota()
+    WhileEnd     = iota()
+    Break        = iota()
+    Continue     = iota()
+    Index        = iota()
+    StoreAtIndex = iota()
+    SetVar       = iota()
+    GetVar       = iota()
+    Debug        = iota()
+    COUNT        = iota()
 
 stack = []
 bindings = {}
@@ -58,7 +65,7 @@ def simulate_program(program):
     global stack
     global bindings
     ip = 0
-    assert Op.COUNT == 26, "Exhaustive handling of Ops"
+    assert Op.COUNT == 28, "Exhaustive handling of Ops"
     while ip < len(program):
         curr = program[ip]
         if curr.op == Op.Plus:
@@ -174,14 +181,28 @@ def simulate_program(program):
             lis = stack.pop()
             stack.append(lis[idx])
             ip += 1
+        elif curr.op == Op.StoreAtIndex:
+            val = stack.pop()
+            idx = stack.pop()
+            lis = stack.pop()
+            lisstart = lis[:idx]
+            lisend = lis[idx + 1:]
+            stack.append(lisstart + val + lisend)
+            ip += 1
         elif curr.op == Op.SetVar:
-            value = stack.pop()
             name = stack.pop()
+            value = stack.pop()
             bindings.update({name: value})
             ip += 1
         elif curr.op == Op.GetVar:
             name = stack.pop()
             stack.append(bindings[name])
+            ip += 1
+        elif curr.op == Op.Debug:
+            print("DEBUG")
+            for (idx, i) in enumerate(stack[::-1]):
+                print(f"! {idx}: {repr(i)}")
+            print("DEBUG")
             ip += 1
         else:
             assert False, "unreachable"
@@ -192,7 +213,7 @@ def configure_blocks(pgrm):
     ip = len(program) - 1
     if_stack = []
     while_stack = []
-    assert Op.COUNT == 26, "Exhaustive handling of Ops"
+    assert Op.COUNT == 28, "Exhaustive handling of Ops"
     while ip >= 0:
         curr = program[ip]
         if curr.op == Op.If:
@@ -218,7 +239,7 @@ def configure_blocks(pgrm):
             ip -= 1
     ip = 0
     whileend_stack = []
-    assert Op.COUNT == 26, "Exhaustive handling of Ops"
+    assert Op.COUNT == 28, "Exhaustive handling of Ops"
     while ip < len(program):
         curr = program[ip]
         if curr.op == Op.While:
@@ -242,7 +263,24 @@ def read_lines_from_file(filepath, content = ""):
     else:
         return [x.split('//')[0] for x in content.splitlines()]
 
+preprocessor_macros = {
+    "sqrt" : "0.5 ^",
+}
+
 def get_line_tokens(line, linenum):
+    if line.startswith("!"):
+        if line.startswith("!alias "):
+            l = line.removeprefix("!alias ") + " "
+            idx = l.find(" ")
+            name = l[:idx]
+            to = l[idx + 1:]
+            preprocessor_macros.update({ name : to })
+        elif line.startswith("!unalias "):
+            del preprocessor_macros[line.removeprefix("!unalias ")]
+        else:
+            raise Exception("Unrecognised command in execution")
+        return []
+
     ct = 0
     acc_tok = ""
     quoted = False
@@ -277,9 +315,6 @@ def get_line_tokens(line, linenum):
         res.append((acc_tok, Loc(linenum + 1, ct + 1)))
     return res
 
-preprocessor_macros = {
-    "sqrt" : "0.5 ^",
-}
 def lex_line(line, linenum):
     res = []
     tokens = get_line_tokens(line, linenum)
@@ -294,7 +329,7 @@ def lex_line(line, linenum):
 
 def build_ast_from_file(filepath, content = ""):
     program = []
-    assert Op.COUNT == 26, "Exhaustive handling of Ops"
+    assert Op.COUNT == 28, "Exhaustive handling of Ops"
     for (linenum, l) in enumerate(read_lines_from_file(filepath, content = content)):
         for (token, loc) in lex_line(l, linenum):
 # TODO: change to use map
@@ -323,8 +358,10 @@ def build_ast_from_file(filepath, content = ""):
                 "break":    Op.Break,
                 "continue": Op.Continue,
                 "idx":      Op.Index,
+                "setidx":   Op.StoreAtIndex,
                 "set":      Op.SetVar,
                 "get":      Op.GetVar,
+                "???":      Op.Debug,
             }
             try:
                 program.append(Op(maptoken[token], [], loc))
@@ -348,6 +385,10 @@ repl_unalias = iota()
 repl_show_aliases = iota()
 repl_save_aliases = iota()
 repl_load_aliases = iota()
+repl_remove_src = iota()
+repl_reload_src = iota()
+repl_show_srcs = iota()
+repl_clear_stack = iota()
 repl_cmd_count = iota()
 
 def display_aliases():
@@ -367,10 +408,12 @@ with open("aliases.py", "r") as a:
     ct = a.read()
     preprocessor_macros = eval(ct)
 
+source_files = {}
+
 while (True):
     lastline = line
-    line = input(f"{len(stack)}: ")
-    assert repl_cmd_count == 11, "Exhaustive handling of commands in repl"
+    line = input(f"S: {len(stack)} | A: {len(preprocessor_macros)} | C: {len(source_files)} > ")
+    assert repl_cmd_count == 15, "Exhaustive handling of commands in repl"
     if line == "!quit":
         break
     elif line.startswith("!load ") or line == "!load":
@@ -378,6 +421,7 @@ while (True):
             filename = line.removeprefix("!load")
             if filename != "":
                 with open(filename[1:], "r") as f:
+                    source_files.update({ filename[1:]: 1 })
                     text = f.read()
                     for i in text.splitlines():
                         print(f"! {i}")
@@ -413,7 +457,7 @@ while (True):
             stack = simulate_program(program)
         except Exception as e:
             print(e) 
-    elif line.startswith("!alias "):
+    elif line.startswith("!alias ") or line == "!alias":
         if line == "!alias":
             print("!alias <token> <tokens>")
             print("  - Creates alias in preprocessor.")
@@ -453,6 +497,38 @@ while (True):
         print("+++++++++++++++++++++++++++")
         print(display_aliases())
         print("+++++++++++++++++++++++++++")
+    elif line.startswith("!unload") or line == "!unload":
+        if line == "!unload":
+            print("!unload <src>")
+            print("  - Unloads src from memory")
+        else:
+            filename = line.removeprefix("!unload ")
+            try:
+                del source_files[filename]
+                print(f"! `{filename}` unloaded")
+            except:
+                print(f"! `{filename}` was never loaded!")
+    elif line == "!reloadsrc":
+        for filename in source_files:
+            try:
+                program = build_ast_from_file(filename)
+                program = configure_blocks(program)
+                stack = simulate_program(program)
+            except Exception as e:
+                print(f"Error in `{filename}`:")
+                print(e) 
+    elif line == "!showsrc":
+        print("+++++++++++++++++++++++++++")
+        for fn in source_files:
+            try:
+                size = os.path.getsize(fn)
+                print(f"! {fn} :: {size}B")
+            except:
+                print(f"! {fn} :: INVALID")
+        print("+++++++++++++++++++++++++++")
+    elif line == "!clearstack":
+        stack = []
+        print("cleared!")
     elif line.startswith("!help ") or line == "!help":
         print("This is a repl, type in any code in this forth and it will evaluate it.")
         print("Commands (these don't work in actual interpreted code, these are repl primitives):")
@@ -478,6 +554,14 @@ while (True):
         print("  - Saves all aliases.")
         print("- !loadaliases")
         print("  - Loads aliases from `./aliases.py`.")
+        print("- !unload <src>")
+        print("  - Unloads src from memory.")
+        print("- !reloadsrc")
+        print("  - Reloads all source files.")
+        print("- !showsrc")
+        print("  - Shows all source files.")
+        print("- !clearstack")
+        print("  - Clears the stack")
     else:
         try:
             program = build_ast_from_file("", content = line + " ")
